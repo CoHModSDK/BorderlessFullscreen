@@ -9,7 +9,7 @@ Borderless Fullscreen is a mod for `Company of Heroes Relaunch` built on top of 
 1. Install the `CoHModSDK` loader in your game directory
 2. Copy `BorderlessFullscreen.dll` into the `mods` folder
 3. Add `BorderlessFullscreen.dll` to `CoHModSDKLoader.ini`
-4. Add the these launch parameters: `-borderless -window -lockmouse -forceactive`
+4. Add these launch parameters: `-borderless -window -lockmouse -forceactive`
 5. Start the game
 
 ## 💡 Notes
