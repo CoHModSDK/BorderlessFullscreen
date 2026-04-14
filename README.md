@@ -20,9 +20,14 @@ Launch parameters:
   - `-lockmouse` enables the engine's built-in mouse confinement
   - `-forceactive` keeps the game updating while it is not focused
 
+## 🎥 Preview
+
+| [![](https://ytcards.demolab.com/?id=YG_1o9S313g&title=Borderless+Fullscreen+Demo&timestamp=1776170501&width=700 "Borderless Fullscreen Demo")](https://www.youtube.com/watch?v=YG_1o9S313g) |
+|---|
+
 ## 🛠️ Building
 
-If you want to build the mod yourself, open the solution in Visual Studio 2022 and build `Release|x86`.
+If you want to build the mod yourself, open the solution in Visual Studio and build `Release|x86`.
 
 ## 📄 License
 
