@@ -1,25 +1,13 @@
 #include "CoHModSDK.hpp"
+#include "CoHModSDKGraphics.hpp"
 
 #include <Windows.h>
-#include <d3d9.h>
-#include <dxgi.h>
 #include <shellapi.h>
 
 #include <algorithm>
 #include <cstdlib>
 
 namespace {
-    using Direct3DCreate9Fn = IDirect3D9*(WINAPI*)(UINT);
-    using D3D9CreateDeviceFn = HRESULT(__stdcall*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
-    using CreateDXGIFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
-    using DXGIFactoryCreateSwapChainFn = HRESULT(__stdcall*)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
-
-    Direct3DCreate9Fn oFnDirect3DCreate9 = nullptr;
-    D3D9CreateDeviceFn oFnD3D9CreateDevice = nullptr;
-
-    CreateDXGIFactoryFn oFnCreateDXGIFactory = nullptr;
-    DXGIFactoryCreateSwapChainFn oFnDxgiCreateSwapChain = nullptr;
-
     bool HasLaunchParameter(const wchar_t* parameter) {
         if (parameter == nullptr) {
             return false;
@@ -41,38 +29,6 @@ namespace {
 
         LocalFree(arguments);
         return found;
-    }
-
-    template <typename T>
-    T ResolveExport(HMODULE module, const char* exportName) {
-        if ((module == nullptr) || (exportName == nullptr)) {
-            return nullptr;
-        }
-
-        return reinterpret_cast<T>(GetProcAddress(module, exportName));
-    }
-
-    template <typename T>
-    bool PatchVTableEntry(void* instance, std::size_t slotIndex, T detour, T* originalFunction) {
-        if (instance == nullptr) {
-            return false;
-        }
-
-        auto*** const asVTable = reinterpret_cast<void***>(instance);
-        if ((*asVTable == nullptr) || ((*asVTable)[slotIndex] == nullptr)) {
-            return false;
-        }
-
-        if (*originalFunction == nullptr) {
-            *originalFunction = reinterpret_cast<T>((*asVTable)[slotIndex]);
-        }
-
-        if ((*asVTable)[slotIndex] == reinterpret_cast<void*>(detour)) {
-            return true;
-        }
-
-        ModSDK::Memory::PatchMemory(&(*asVTable)[slotIndex], &detour, sizeof(detour));
-        return true;
     }
 
     struct WindowSearchContext {
@@ -143,10 +99,7 @@ namespace {
 
     void ApplyBorderlessWindow(HWND window) {
         if ((window == nullptr) || !IsWindow(window)) {
-            window = FindProcessTopLevelWindow();
-            if ((window == nullptr) || !IsWindow(window)) {
-                return;
-            }
+            return;
         }
 
         RECT desktopRect = {};
@@ -240,136 +193,48 @@ namespace {
         ForceWindowedModeDesc(description->OutputWindow, description->BufferDesc);
     }
 
-    HRESULT __stdcall HookedD3D9CreateDevice(IDirect3D9* _this, UINT adapter, D3DDEVTYPE deviceType, HWND window,
-        DWORD flags, D3DPRESENT_PARAMETERS* params, IDirect3DDevice9** device) {
-        HWND targetWindow = window;
+    bool OnBeforeD3D9CreateDevice(IDirect3D9* direct3D, UINT* adapter, D3DDEVTYPE*, HWND* window,
+                                  DWORD*, D3DPRESENT_PARAMETERS* params) {
+        HWND targetWindow = (window != nullptr) ? *window : nullptr;
         if ((targetWindow == nullptr) && (params != nullptr)) {
             targetWindow = params->hDeviceWindow;
         }
+        ForceWindowedPresentParameters(direct3D, (adapter != nullptr) ? *adapter : 0, targetWindow, params);
+        return true;
+    }
 
-        ForceWindowedPresentParameters(_this, adapter, targetWindow, params);
-
-        const HRESULT result = oFnD3D9CreateDevice(_this, adapter, deviceType, window, flags, params, device);
+    void OnAfterD3D9CreateDevice(IDirect3D9*, UINT, D3DDEVTYPE, HWND window, DWORD,
+                                 D3DPRESENT_PARAMETERS* params, HRESULT result, IDirect3DDevice9*) {
         if (SUCCEEDED(result)) {
+            HWND targetWindow = window;
+            if ((targetWindow == nullptr) && (params != nullptr)) {
+                targetWindow = params->hDeviceWindow;
+            }
             ApplyBorderlessWindow(targetWindow);
         }
-
-        return result;
     }
 
-    IDirect3D9* WINAPI HookedDirect3DCreate9(UINT version) {
-        IDirect3D9* direct3D = oFnDirect3DCreate9(version);
-        if (direct3D != nullptr) {
-            PatchVTableEntry(direct3D, 16u, &HookedD3D9CreateDevice, &oFnD3D9CreateDevice);
-        }
-
-        return direct3D;
-    }
-
-    HRESULT __stdcall HookedDXGIFactoryCreateSwapChain(IDXGIFactory* _this, IUnknown* device,
-        DXGI_SWAP_CHAIN_DESC* description, IDXGISwapChain** swapChain) {
-        DXGI_SWAP_CHAIN_DESC adjustedDescription = {};
-        DXGI_SWAP_CHAIN_DESC* descriptionToUse = description;
-
-        if (description != nullptr) {
-            adjustedDescription = *description;
-            ForceWindowedSwapChainDesc(&adjustedDescription);
-            descriptionToUse = &adjustedDescription;
-        }
-
-        const HRESULT result = oFnDxgiCreateSwapChain(_this, device, descriptionToUse, swapChain);
-        if (SUCCEEDED(result)) {
-            ApplyBorderlessWindow(descriptionToUse != nullptr ? descriptionToUse->OutputWindow : nullptr);
-        }
-
-        return result;
-    }
-
-    HRESULT WINAPI HookedCreateDXGIFactory(REFIID riid, void** factory) {
-        const HRESULT result = oFnCreateDXGIFactory(riid, factory);
-        if (SUCCEEDED(result) && (factory != nullptr) && (*factory != nullptr)) {
-            PatchVTableEntry(reinterpret_cast<IDXGIFactory*>(*factory), 10u, &HookedDXGIFactoryCreateSwapChain, &oFnDxgiCreateSwapChain);
-        }
-
-        return result;
-    }
-
-    bool InstallD3D9ExportHook() {
-        HMODULE hModule = LoadLibraryA("d3d9.dll");
-        if (hModule == nullptr) {
-			ModSDK::Dialogs::ShowError("Failed to load d3d9.dll");
-            return false;
-        }
-
-        const auto tDirect3DCreate9 = ResolveExport<void*>(hModule, "Direct3DCreate9");
-        if (tDirect3DCreate9 == nullptr) {
-			ModSDK::Dialogs::ShowError("Failed to find Direct3DCreate9 export");
-            return false;
-        }
-
-        if (!ModSDK::Hooks::CreateHook(
-                tDirect3DCreate9,
-                reinterpret_cast<void*>(&HookedDirect3DCreate9),
-                reinterpret_cast<void**>(&oFnDirect3DCreate9))) {
-			ModSDK::Dialogs::ShowError("Failed to create Direct3DCreate9 export hook");
-            return false;
-        }
-
-        if (!ModSDK::Hooks::EnableHook(tDirect3DCreate9)) {
-			ModSDK::Dialogs::ShowError("Failed to enable Direct3DCreate9 export hook");
-            return false;
-        }
-
+    bool OnBeforeDXGICreateSwapChain(IDXGIFactory*, IUnknown**, DXGI_SWAP_CHAIN_DESC* description) {
+        ForceWindowedSwapChainDesc(description);
         return true;
     }
 
-    bool InstallDxgiExportHook() {
-        HMODULE hModule = LoadLibraryA("dxgi.dll");
-        if (hModule == nullptr) {
-			ModSDK::Dialogs::ShowError("Failed to load dxgi.dll");
-            return false;
+    void OnAfterDXGICreateSwapChain(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC* description,
+                                    HRESULT result, IDXGISwapChain*) {
+        if (SUCCEEDED(result) && (description != nullptr)) {
+            ApplyBorderlessWindow(description->OutputWindow);
         }
-
-        const auto tCreateDxgiFactory = ResolveExport<void*>(hModule, "CreateDXGIFactory");
-        if (tCreateDxgiFactory == nullptr) {
-			ModSDK::Dialogs::ShowError("Failed to find CreateDXGIFactory export");
-            return false;
-        }
-
-        if (!ModSDK::Hooks::CreateHook(
-                tCreateDxgiFactory,
-                reinterpret_cast<void*>(&HookedCreateDXGIFactory),
-                reinterpret_cast<void**>(&oFnCreateDXGIFactory))) {
-			ModSDK::Dialogs::ShowError("Failed to create CreateDXGIFactory export hook");
-            return false;
-        }
-
-        if (!ModSDK::Hooks::EnableHook(tCreateDxgiFactory)) {
-			ModSDK::Dialogs::ShowError("Failed to enable CreateDXGIFactory export hook");
-            return false;
-        }
-
-        return true;
     }
 
     bool OnInitialize() {
         if (!HasLaunchParameter(L"-borderless")) {
-            ModSDK::Runtime::Log(CoHModSDKLogLevel_Warning, "Borderless Fullscreen is inactive because -borderless was not provided");
+            ModSDK::Runtime::LogWarning("Borderless Fullscreen is inactive because -borderless was not provided");
             return true;
         }
 
-        if (!InstallD3D9ExportHook()) {
-            return false;
-        }
+        ModSDK::Graphics::OnD3D9CreateDevice(&OnBeforeD3D9CreateDevice, &OnAfterD3D9CreateDevice);
+        ModSDK::Graphics::OnDXGICreateSwapChain(&OnBeforeDXGICreateSwapChain, &OnAfterDXGICreateSwapChain);
 
-        if (!InstallDxgiExportHook()) {
-            return false;
-        }
-
-        return true;
-    }
-
-    bool OnModsLoaded() {
         return true;
     }
 
@@ -380,10 +245,9 @@ namespace {
         .size = sizeof(CoHModSDKModuleV1),
         .modId = "de.tosox.borderlessfullscreen",
         .name = "Borderless Fullscreen",
-        .version = "1.0.0",
+        .version = "1.1.0",
         .author = "Tosox",
         .OnInitialize = &OnInitialize,
-        .OnModsLoaded = &OnModsLoaded,
         .OnShutdown = &OnShutdown,
     };
 }
