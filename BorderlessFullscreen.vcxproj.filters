@@ -36,6 +36,9 @@
     <ClInclude Include="res\resource.h">
       <Filter>res</Filter>
     </ClInclude>
+    <ClInclude Include="lib\CoHModSDK\include\CoHModSDKGraphics.hpp">
+      <Filter>lib\CoHModSDK\include</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\CoHModSDK\lib\x86\CoHModSDK.lib">

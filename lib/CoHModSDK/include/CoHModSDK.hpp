@@ -141,8 +141,6 @@ extern "C" {
         std::optional<std::uintptr_t> (*FindPattern)(const char* moduleName, const char* signature);
         void (*PatchMemory)(void* destination, const void* source, std::size_t size);
         bool (*CreateHook)(void* targetFunction, void* detourFunction, void** originalFunction);
-        bool (*EnableHook)(void* targetFunction);
-        bool (*DisableHook)(void* targetFunction);
         bool (*RegisterConfigSchema)(const CoHModSDKConfigSchemaV1* schema);
         bool (*GetConfigValue)(const char* modId, const char* optionId, CoHModSDKConfigValueV1* outValue);
         bool (*SetConfigValue)(const char* modId, const char* optionId, const CoHModSDKConfigValueV1* value);
@@ -159,11 +157,11 @@ extern "C" {
         const char* version;
         const char* author;
         bool (*OnInitialize)();
-        bool (*OnModsLoaded)();
         void (*OnShutdown)();
     };
 
     COHMODSDK_RUNTIME_API bool CoHModSDKRuntime_Initialize(const CoHModSDKRuntimeInitV1* init);
+    COHMODSDK_RUNTIME_API void CoHModSDKRuntime_EnableAllHooks();
     COHMODSDK_RUNTIME_API void CoHModSDKRuntime_Shutdown();
     COHMODSDK_RUNTIME_API bool CoHModSDKRuntime_RegisterMod(HMODULE modHandle, const CoHModSDKModuleV1* module, const CoHModSDKModContextV1** outContext);
     COHMODSDK_RUNTIME_API void CoHModSDKRuntime_UnregisterMod(HMODULE modHandle);
@@ -224,6 +222,22 @@ namespace ModSDK {
         inline void Log(CoHModSDKLogLevel level, const char* message) {
             Detail::GetApi().Log(Detail::GetModContext(), level, message);
         }
+
+        inline void LogDebug(const char* message) {
+            Detail::GetApi().Log(Detail::GetModContext(), CoHModSDKLogLevel_Debug, message);
+        }
+
+        inline void LogInfo(const char* message) {
+            Detail::GetApi().Log(Detail::GetModContext(), CoHModSDKLogLevel_Info, message);
+        }
+
+        inline void LogWarning(const char* message) {
+            Detail::GetApi().Log(Detail::GetModContext(), CoHModSDKLogLevel_Warning, message);
+        }
+
+        inline void LogError(const char* message) {
+            Detail::GetApi().Log(Detail::GetModContext(), CoHModSDKLogLevel_Error, message);
+        }
     }
 
     namespace Dialogs {
@@ -240,19 +254,24 @@ namespace ModSDK {
         inline void PatchMemory(void* destination, const void* source, std::size_t size) {
             Detail::GetApi().PatchMemory(destination, source, size);
         }
+
+        inline void* GetVTableEntry(void* instance, std::size_t index) {
+            return (*static_cast<void***>(instance))[index];
+        }
+
+        template <typename T>
+        inline T ResolveExport(HMODULE module, const char* exportName) {
+            if ((module == nullptr) || (exportName == nullptr)) {
+                return nullptr;
+            }
+
+            return reinterpret_cast<T>(GetProcAddress(module, exportName));
+        }
     }
 
     namespace Hooks {
         inline bool CreateHook(void* targetFunction, void* detourFunction, void** originalFunction) {
             return Detail::GetApi().CreateHook(targetFunction, detourFunction, originalFunction);
-        }
-
-        inline bool EnableHook(void* targetFunction) {
-            return Detail::GetApi().EnableHook(targetFunction);
-        }
-
-        inline bool DisableHook(void* targetFunction) {
-            return Detail::GetApi().DisableHook(targetFunction);
         }
     }
 

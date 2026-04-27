@@ -98,6 +98,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lib\CoHModSDK\include\CoHModSDK.hpp" />
+    <ClInclude Include="lib\CoHModSDK\include\CoHModSDKGraphics.hpp" />
     <ClInclude Include="res\resource.h" />
   </ItemGroup>
   <ItemGroup>
