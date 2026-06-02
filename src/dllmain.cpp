@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <thread>
 
 namespace {
     bool HasLaunchParameter(const wchar_t* parameter) {
@@ -210,7 +211,7 @@ namespace {
             if ((targetWindow == nullptr) && (params != nullptr)) {
                 targetWindow = params->hDeviceWindow;
             }
-            ApplyBorderlessWindow(targetWindow);
+            std::thread([targetWindow]() { ApplyBorderlessWindow(targetWindow); }).detach();
         }
     }
 
@@ -222,7 +223,8 @@ namespace {
     void OnAfterDXGICreateSwapChain(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC* description,
                                     HRESULT result, IDXGISwapChain*) {
         if (SUCCEEDED(result) && (description != nullptr)) {
-            ApplyBorderlessWindow(description->OutputWindow);
+			HWND targetWindow = description->OutputWindow;
+            std::thread([targetWindow]() { ApplyBorderlessWindow(targetWindow); }).detach();
         }
     }
 
