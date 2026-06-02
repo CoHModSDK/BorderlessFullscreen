@@ -247,7 +247,7 @@ namespace {
         .size = sizeof(CoHModSDKModuleV1),
         .modId = "de.tosox.borderlessfullscreen",
         .name = "Borderless Fullscreen",
-        .version = "1.1.0",
+        .version = "1.1.1",
         .author = "Tosox",
         .OnInitialize = &OnInitialize,
         .OnShutdown = &OnShutdown,
